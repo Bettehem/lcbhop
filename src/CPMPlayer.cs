@@ -1,4 +1,5 @@
-/* Based on https://github.com/WiggleWizard/quake3-movement-unity3d/blob/master/CPMPlayer.cs
+/*
+ * Based on https://github.com/WiggleWizard/quake3-movement-unity3d/blob/master/CPMPlayer.cs
  * Modified to match https://github.com/ValveSoftware/halflife/blob/master/pm_shared/pm_shared.c
  */
 
@@ -35,7 +36,7 @@ namespace lcbhop {
         public PlayerControllerB player;
         private CharacterController _controller;
 
-        private Vector3 playerVelocity = Vector3.zero;
+        private Vector3 velocity = Vector3.zero;
 
         public bool wishJump = false;
 
@@ -75,9 +76,9 @@ namespace lcbhop {
             }
 
             /* Movement, here's the important part */
-            QueueJump( );
+            Jump( );
 
-            if ( _controller.isGrounded )
+            if ( !wishJump && _controller.isGrounded )
                 Friction( );
 
             if ( _controller.isGrounded )
@@ -87,7 +88,7 @@ namespace lcbhop {
 
             // Move the controller
             Plugin.patchMove = false; // Disable the Move Patch
-            _controller.Move( playerVelocity / 32.0f * Time.deltaTime );
+            _controller.Move( velocity / 32.0f * Time.deltaTime );
             Plugin.patchMove = true; // Reenable the Move Patch
 
             wishJump = false;
@@ -104,7 +105,7 @@ namespace lcbhop {
                 compass.SetActive( true );
 
                 // Only X, Y speed
-                Vector3 vel = playerVelocity;
+                Vector3 vel = velocity;
                 vel.y = 0.0f;
 
                 speedo.text = $"{( int ) vel.magnitude} u";
@@ -136,13 +137,16 @@ namespace lcbhop {
         /*
          * Checks for jump input
          */
-        private void QueueJump( ) {
+        private void Jump( ) {
             if ( Plugin.cfg.autobhop )
                 wishJump = player.playerActions.Movement.Jump.ReadValue<float>( ) > 0.0f;
             else {
                 if ( !wishJump )
                     wishJump = player.playerActions.Movement.SwitchItem.ReadValue<float>( ) != 0.0f;
             }
+
+            if ( !Plugin.cfg.enablebunnyhopping )
+                PreventMegaBunnyJumping( );
         }
 
         /*
@@ -171,7 +175,7 @@ namespace lcbhop {
             AirAccelerate( wishdir, wishspeed, airaccelerate );
 
             // Apply gravity
-            playerVelocity.y -= gravity * Time.deltaTime;
+            velocity.y -= gravity * Time.deltaTime;
         }
 
         /*
@@ -200,13 +204,13 @@ namespace lcbhop {
             Accelerate( wishdir, wishspeed, accelerate );
 
             // Reset the gravity velocity
-            playerVelocity.y = -gravity * Time.deltaTime;
+            velocity.y = -gravity * Time.deltaTime;
 
             if ( wishJump ) {
-                playerVelocity.y = Mathf.Sqrt( 2 * 800 * Plugin.cfg.jumpheight );
+                velocity.y = 295;
 
                 // Animate player jumping, this is a bit tricky since its a private method (there's probably a better way to do this)
-                /* XXX: This messes with the animator and makes you not be able to crouch, coulnt figure it out yet!
+                /* XXX: This messes with the animator and makes you not be able to crouch, couldnt figure it out yet!
                  * Plugin.patchJump = false; // Disable jump patch
                  * MethodInfo method = player.GetType( ).GetMethod( "Jump_performed", BindingFlags.NonPublic | BindingFlags.Instance );
                  * method.Invoke( player, new object[] { new InputAction.CallbackContext( ) } ); // Pass dummy callback context
@@ -219,7 +223,7 @@ namespace lcbhop {
          * Applies friction to the player, called in both the air and on the ground
          */
         private void Friction( ) {
-            Vector3 vec = playerVelocity;
+            Vector3 vec = velocity;
             float speed;
             float newspeed;
             float control;
@@ -245,8 +249,8 @@ namespace lcbhop {
 
             newspeed /= speed;
 
-            playerVelocity.x *= newspeed;
-            playerVelocity.z *= newspeed;
+            velocity.x *= newspeed;
+            velocity.z *= newspeed;
         }
 
         private void Accelerate( Vector3 wishdir, float wishspeed, float accel ) {
@@ -254,8 +258,7 @@ namespace lcbhop {
             float accelspeed;
             float currentspeed;
 
-            currentspeed = Vector3.Dot( playerVelocity, wishdir );
-
+            currentspeed = Vector3.Dot( velocity, wishdir );
 
             addspeed = wishspeed - currentspeed;
 
@@ -267,8 +270,8 @@ namespace lcbhop {
             if ( accelspeed > addspeed )
                 accelspeed = addspeed;
 
-            playerVelocity.x += accelspeed * wishdir.x;
-            playerVelocity.z += accelspeed * wishdir.z;
+            velocity.x += accelspeed * wishdir.x;
+            velocity.z += accelspeed * wishdir.z;
         }
 
         private void AirAccelerate( Vector3 wishdir, float wishspeed, float accel ) {
@@ -280,7 +283,7 @@ namespace lcbhop {
             if ( wishspd > 30 )
                 wishspd = 30;
 
-            currentspeed = Vector3.Dot( playerVelocity, wishdir );
+            currentspeed = Vector3.Dot( velocity, wishdir );
 
             addspeed = wishspd - currentspeed;
 
@@ -292,8 +295,31 @@ namespace lcbhop {
             if ( accelspeed > addspeed )
                 accelspeed = addspeed;
 
-            playerVelocity.x += accelspeed * wishdir.x;
-            playerVelocity.z += accelspeed * wishdir.z;
+            velocity.x += accelspeed * wishdir.x;
+            velocity.z += accelspeed * wishdir.z;
+        }
+
+        private void PreventMegaBunnyJumping( ) {
+            Vector3 vec = velocity;
+            float spd;
+            float fraction;
+            float maxscaledspeed;
+
+            maxscaledspeed = 1.7f /* BUNNYJUMP_MAX_SPEED_FACTOR */ * maxspeed;
+
+            if ( maxscaledspeed <= 0.0f )
+                return;
+
+            vec.y = 0.0f;
+            spd = vec.magnitude;
+
+            if ( spd <= maxscaledspeed )
+                return;
+
+            fraction = ( maxscaledspeed / spd ) * 0.65f;
+
+            velocity.x *= fraction;
+            velocity.z *= fraction;
         }
     }
 }
